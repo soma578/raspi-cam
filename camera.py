@@ -8,7 +8,12 @@ import io
 from datetime import datetime
 from PIL import Image
 
-from config import FRAME_SIZE, JPEG_QUALITY, SNAP_DIR, CAMERA_COLOR_ORDER
+from config import FRAME_SIZE, JPEG_QUALITY, SNAP_DIR, CAMERA_COLOR_ORDER, CAMERA_DEBUG
+
+
+def debug_print(*args, **kwargs):
+    if CAMERA_DEBUG:
+        print(*args, **kwargs)
 
 class CameraBase:
     def __init__(self):
@@ -21,7 +26,7 @@ class CameraBase:
         self.running = True
         self._t = threading.Thread(target=self._loop, daemon=True)
         self._t.start()
-        print(f"[DEBUG] {self.__class__.__name__}: capture thread started")
+        debug_print(f"[DEBUG] {self.__class__.__name__}: capture thread started")
 
     def stop(self):
         self.running = False
@@ -49,15 +54,23 @@ class CameraBase:
 class Picamera2Camera(CameraBase):
     def __init__(self):
         super().__init__()
-        print("[DEBUG] Picamera2Camera: initializing...")
+        debug_print("[DEBUG] Picamera2Camera: initializing...")
 
         from picamera2 import Picamera2
         from libcamera import Transform
         import time
 
+        if hasattr(Picamera2, "set_logging"):
+            level = getattr(Picamera2, "ERROR", None)
+            if level is not None:
+                try:
+                    Picamera2.set_logging(level)
+                except Exception as e:
+                    debug_print("[DEBUG] Picamera2Camera: set_logging failed:", e)
+
         try:
             self.picam2 = Picamera2()
-            print("[DEBUG] Picamera2Camera: instance created OK")
+            debug_print("[DEBUG] Picamera2Camera: instance created OK")
         except Exception as e:
             print("[ERROR] Picamera2 init failed:", e)
             raise
@@ -69,7 +82,7 @@ class Picamera2Camera(CameraBase):
             )
             self.picam2.configure(self.config)
             self.output_format = self.picam2.camera_configuration()["main"]["format"]
-            print(f"[DEBUG] Picamera2Camera: configured with preview mode (format: {self.output_format})")
+            debug_print(f"[DEBUG] Picamera2Camera: configured with preview mode (format: {self.output_format})")
         except Exception as e:
             print("[ERROR] Picamera2 configure failed:", e)
             raise
@@ -80,7 +93,7 @@ class Picamera2Camera(CameraBase):
             self.assumed_color_order = self.native_color_order or "RGB"
         else:
             self.assumed_color_order = env_order
-        print(
+        debug_print(
             "[DEBUG] Picamera2Camera: color order native="
             f"{self.native_color_order or 'unknown'} assumed={self.assumed_color_order}"
             f" (env={CAMERA_COLOR_ORDER})"
@@ -88,19 +101,19 @@ class Picamera2Camera(CameraBase):
 
         try:
             self.picam2.start()
-            print("[DEBUG] Picamera2Camera: started OK")
+            debug_print("[DEBUG] Picamera2Camera: started OK")
         except Exception as e:
             print("[ERROR] Picamera2 start failed:", e)
             raise
 
         time.sleep(1.0)
-        print("[DEBUG] Picamera2Camera: warmup done")
+        debug_print("[DEBUG] Picamera2Camera: warmup done")
 
     def _loop(self):
         import io, time
         from PIL import Image
 
-        print("[DEBUG] Picamera2Camera: loop started")
+        debug_print("[DEBUG] Picamera2Camera: loop started")
         while self.running:
             try:
                 frame = self.picam2.capture_array("main")
@@ -108,7 +121,7 @@ class Picamera2Camera(CameraBase):
                     print("[WARN] capture_array returned None")
                     time.sleep(0.2)
                     continue
-                print("[DEBUG] got frame:", frame.shape)
+                debug_print("[DEBUG] got frame:", frame.shape)
                 frame = self._frame_to_rgb(frame)
                 img = Image.fromarray(frame, mode="RGB")
                 buf = io.BytesIO()
@@ -120,7 +133,7 @@ class Picamera2Camera(CameraBase):
                 print("[ERROR] Picamera2 loop exception:", e)
                 time.sleep(0.2)
 
-        print("[DEBUG] Picamera2Camera: loop stopped")
+        debug_print("[DEBUG] Picamera2Camera: loop stopped")
 
     def _native_order_from_format(self, fmt):
         fmt = (fmt or "").upper()

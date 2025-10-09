@@ -19,3 +19,9 @@ UPLOAD_API_KEY = os.getenv("UPLOAD_API_KEY", "")   # 例: ベアラートーク�
 CAMERA_COLOR_ORDER = os.getenv("CAMERA_COLOR_ORDER", "AUTO").strip().upper()
 if CAMERA_COLOR_ORDER not in {"AUTO", "RGB", "BGR"}:
     CAMERA_COLOR_ORDER = "AUTO"
+
+def _env_flag(name, default="0"):
+    value = os.getenv(name, default)
+    return value.lower() in {"1", "true", "yes", "on"}
+
+CAMERA_DEBUG = _env_flag("CAMERA_DEBUG")
