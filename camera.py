@@ -64,7 +64,7 @@ class Picamera2Camera(CameraBase):
 
         try:
             self.config = self.picam2.create_preview_configuration(
-                main={"size": (self.width, self.height), "format": "RGB888"},
+                main={"size": (self.width, self.height), "format": "BGR888"},
                 transform=Transform(hflip=0, vflip=0)
             )
             self.picam2.configure(self.config)
@@ -91,12 +91,19 @@ class Picamera2Camera(CameraBase):
         print("[DEBUG] Picamera2Camera: loop started")
         while self.running:
             try:
-                frame = self.picam2.capture_array("main", "RGB888")
+                frame = self.picam2.capture_array("main")
                 if frame is None:
                     print("[WARN] capture_array returned None")
                     time.sleep(0.2)
                     continue
                 print("[DEBUG] got frame:", frame.shape)
+                fmt = getattr(self, "output_format", "RGB888")
+                if fmt == "XBGR8888":
+                    frame = frame[..., [3, 2, 1]]
+                elif fmt == "XRGB8888":
+                    frame = frame[..., [1, 2, 3]]
+                elif fmt == "BGR888":
+                    frame = frame[..., ::-1]
                 if frame.ndim == 3 and frame.shape[2] == 4:
                     frame = frame[..., :3]
                 img = Image.fromarray(frame, mode="RGB")
