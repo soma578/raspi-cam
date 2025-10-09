@@ -64,7 +64,7 @@ class Picamera2Camera(CameraBase):
 
         try:
             self.config = self.picam2.create_preview_configuration(
-                main={"size": (self.width, self.height), "format": "BGR888"},
+                main={"size": (self.width, self.height), "format": "RGB888"},
                 transform=Transform(hflip=0, vflip=0)
             )
             self.picam2.configure(self.config)
@@ -104,8 +104,9 @@ class Picamera2Camera(CameraBase):
                     frame = frame[..., [1, 2, 3]]
                 elif fmt == "BGR888":
                     frame = frame[..., ::-1]
-                if frame.ndim == 3 and frame.shape[2] == 4:
+                elif fmt != "RGB888":
                     frame = frame[..., :3]
+                frame = frame.copy()
                 img = Image.fromarray(frame, mode="RGB")
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=JPEG_QUALITY)
