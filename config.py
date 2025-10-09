@@ -14,3 +14,8 @@ os.makedirs(SNAP_DIR, exist_ok=True)
 # アップロード先REST API（空だとアップロード無効）
 UPLOAD_URL = os.getenv("UPLOAD_URL", "")           # 例: https://example.com/upload
 UPLOAD_API_KEY = os.getenv("UPLOAD_API_KEY", "")   # 例: ベアラートークンなど
+
+# カメラからの生データの色順序 (AUTO / RGB / BGR)
+CAMERA_COLOR_ORDER = os.getenv("CAMERA_COLOR_ORDER", "AUTO").strip().upper()
+if CAMERA_COLOR_ORDER not in {"AUTO", "RGB", "BGR"}:
+    CAMERA_COLOR_ORDER = "AUTO"

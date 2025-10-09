@@ -8,7 +8,7 @@ import io
 from datetime import datetime
 from PIL import Image
 
-from config import FRAME_SIZE, JPEG_QUALITY, SNAP_DIR
+from config import FRAME_SIZE, JPEG_QUALITY, SNAP_DIR, CAMERA_COLOR_ORDER
 
 class CameraBase:
     def __init__(self):
@@ -74,6 +74,18 @@ class Picamera2Camera(CameraBase):
             print("[ERROR] Picamera2 configure failed:", e)
             raise
 
+        self.native_color_order = self._native_order_from_format(self.output_format)
+        env_order = CAMERA_COLOR_ORDER
+        if env_order == "AUTO":
+            self.assumed_color_order = self.native_color_order or "RGB"
+        else:
+            self.assumed_color_order = env_order
+        print(
+            "[DEBUG] Picamera2Camera: color order native="
+            f"{self.native_color_order or 'unknown'} assumed={self.assumed_color_order}"
+            f" (env={CAMERA_COLOR_ORDER})"
+        )
+
         try:
             self.picam2.start()
             print("[DEBUG] Picamera2Camera: started OK")
@@ -97,16 +109,7 @@ class Picamera2Camera(CameraBase):
                     time.sleep(0.2)
                     continue
                 print("[DEBUG] got frame:", frame.shape)
-                fmt = getattr(self, "output_format", "RGB888")
-                if fmt == "XBGR8888":
-                    frame = frame[..., [3, 2, 1]]
-                elif fmt == "XRGB8888":
-                    frame = frame[..., [1, 2, 3]]
-                elif fmt == "BGR888":
-                    frame = frame[..., ::-1]
-                elif fmt != "RGB888":
-                    frame = frame[..., :3]
-                frame = frame.copy()
+                frame = self._frame_to_rgb(frame)
                 img = Image.fromarray(frame, mode="RGB")
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=JPEG_QUALITY)
@@ -118,6 +121,45 @@ class Picamera2Camera(CameraBase):
                 time.sleep(0.2)
 
         print("[DEBUG] Picamera2Camera: loop stopped")
+
+    def _native_order_from_format(self, fmt):
+        fmt = (fmt or "").upper()
+        if fmt in {"BGR888", "XBGR8888"}:
+            return "BGR"
+        if fmt in {"RGB888", "XRGB8888"}:
+            return "RGB"
+        return "RGB"
+
+    def _frame_to_rgb(self, frame):
+        fmt = getattr(self, "output_format", "RGB888")
+        fmt = (fmt or "").upper()
+        order = None
+        if fmt == "XBGR8888":
+            frame = frame[..., [1, 2, 3]]
+            order = "BGR"
+        elif fmt == "XRGB8888":
+            frame = frame[..., [1, 2, 3]]
+            order = "RGB"
+        else:
+            if frame.ndim == 3 and frame.shape[2] > 3:
+                frame = frame[..., :3]
+            if fmt == "BGR888":
+                order = "BGR"
+            elif fmt == "RGB888":
+                order = "RGB"
+            else:
+                order = self.native_color_order or "RGB"
+
+        if order is None:
+            order = self.native_color_order or "RGB"
+
+        assumed = getattr(self, "assumed_color_order", "RGB")
+        if assumed == "AUTO":
+            assumed = order
+        if assumed == "BGR":
+            frame = frame[..., ::-1]
+
+        return frame.copy()
 
 
 class OpenCVCamera(CameraBase):
