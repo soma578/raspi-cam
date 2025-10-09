@@ -21,6 +21,7 @@ class CameraBase:
         self.running = True
         self._t = threading.Thread(target=self._loop, daemon=True)
         self._t.start()
+        print(f"[DEBUG] {self.__class__.__name__}: capture thread started")
 
     def stop(self):
         self.running = False
@@ -35,6 +36,7 @@ class CameraBase:
     def save_snapshot(self, path=None):
         data = self.get_jpeg()
         if not data:
+            print(f"[WARN] {self.__class__.__name__}: no frame available for snapshot")
             return None
         if path is None:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")

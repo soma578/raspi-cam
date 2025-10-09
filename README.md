@@ -44,22 +44,41 @@ raspi-cam-viewer/
 
 ## 🧰 セットアップ手順
 
-### 1️⃣ パッケージインストール
+### 1️⃣ Raspberry Pi 側のパッケージ
 
 ```bash
 sudo apt update
-sudo apt install -y python3-pip python3-venv python3-opencv python3-picamera2 libatlas-base-dev curl
-````
+sudo apt install -y \
+  python3-pip python3-venv \
+  python3-picamera2 python3-libcamera libcamera-apps \
+  python3-opencv libatlas-base-dev curl
+```
 
-### 2️⃣ 仮想環境作成と依存導入
+> 既にインストール済みの場合はそのままで OK。`libcamera-hello -t 2000` が動けばカメラ周りの準備完了です。
+
+### 2️⃣ 仮想環境（システムパッケージ共有）と依存導入
 
 ```bash
 cd ~/raspi-cam-viewer
-python3 -m venv .venv
+# 以前の venv がある場合は削除
+rm -rf .venv
+
+# Picamera2 など apt のモジュールを共有するため --system-site-packages を付ける
+python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
 ```
+
+`pip install -r requirements.txt` では Flask / Socket.IO / Pillow / requests などの最小限だけを入れ、OpenCV や Picamera2 は apt 版を利用します（`requirements.txt` から `opencv-python(-headless)` は削除済み）。
+
+### 3️⃣ Picamera2 の読み込みテスト
+
+```bash
+python3 -c "from picamera2 import Picamera2"
+```
+
+何も表示されずに戻れば成功です。
 
 ---
 

@@ -1,8 +1,6 @@
 import os
 import time
 import base64
-import eventlet
-eventlet.monkey_patch(thread=False)
 
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO
@@ -12,7 +10,7 @@ from camera import create_camera
 from config import MAX_FPS, SNAP_DIR, UPLOAD_URL, UPLOAD_API_KEY
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 camera = create_camera()
 camera.start()
