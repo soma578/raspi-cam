@@ -68,7 +68,8 @@ class Picamera2Camera(CameraBase):
                 transform=Transform(hflip=0, vflip=0)
             )
             self.picam2.configure(self.config)
-            print("[DEBUG] Picamera2Camera: configured with preview mode")
+            self.output_format = self.picam2.camera_configuration()["main"]["format"]
+            print(f"[DEBUG] Picamera2Camera: configured with preview mode (format: {self.output_format})")
         except Exception as e:
             print("[ERROR] Picamera2 configure failed:", e)
             raise
@@ -96,7 +97,16 @@ class Picamera2Camera(CameraBase):
                     time.sleep(0.2)
                     continue
                 print("[DEBUG] got frame:", frame.shape)
-                img = Image.fromarray(frame)
+                fmt = getattr(self, "output_format", "RGB888")
+                if fmt == "XBGR8888":
+                    frame = frame[..., [3, 2, 1]]
+                elif fmt == "XRGB8888":
+                    frame = frame[..., [1, 2, 3]]
+                elif fmt == "BGR888":
+                    frame = frame[..., ::-1]
+                if frame.ndim == 3 and frame.shape[2] == 4:
+                    frame = frame[..., :3]
+                img = Image.fromarray(frame, mode="RGB")
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=JPEG_QUALITY)
                 with self.lock:
