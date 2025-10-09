@@ -43,28 +43,40 @@ class CameraBase:
 class Picamera2Camera(CameraBase):
     def __init__(self):
         super().__init__()
-        from picamera2 import Picamera2
+        from picamera2 import Picamera2, Preview
         from libcamera import Transform
-        self.Picamera2 = Picamera2
+        import time
 
         self.picam2 = Picamera2()
-        cfg = self.picam2.create_video_configuration(
+        # 「preview」設定を使うのがポイント（videoだと capture_array が無反応になる環境がある）
+        self.config = self.picam2.create_preview_configuration(
             main={"size": (self.width, self.height), "format": "RGB888"},
-            transform=Transform(hflip=0, vflip=0),
-            buffer_count=4
+            transform=Transform(hflip=0, vflip=0)
         )
-        self.picam2.configure(cfg)
+        self.picam2.configure(self.config)
         self.picam2.start()
+        time.sleep(1.0)  # ウォームアップ
 
     def _loop(self):
+        import io
+        from PIL import Image
+        import time
+
         while self.running:
-            frame = self.picam2.capture_array()  # RGB ndarray
-            img = Image.fromarray(frame)
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
-            with self.lock:
-                self.last_frame = buf.getvalue()
-            time.sleep(0.001)
+            try:
+                frame = self.picam2.capture_array("main")  # "main"ストリームを明示
+                if frame is None:
+                    time.sleep(0.05)
+                    continue
+                img = Image.fromarray(frame)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=JPEG_QUALITY)
+                with self.lock:
+                    self.last_frame = buf.getvalue()
+                time.sleep(0.05)
+            except Exception as e:
+                print("Picamera2 loop error:", e)
+                time.sleep(0.1)
 
 
 class OpenCVCamera(CameraBase):
