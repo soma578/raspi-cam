@@ -1,3 +1,7 @@
+import os
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ["LIBCAMERA_LOG_LEVELS"] = "*:0"
+
 import time
 import threading
 import io
