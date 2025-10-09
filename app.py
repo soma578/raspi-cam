@@ -2,7 +2,7 @@ import os
 import time
 import base64
 import eventlet
-eventlet.monkey_patch()
+eventlet.monkey_patch(thread=False)
 
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO

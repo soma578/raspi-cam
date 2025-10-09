@@ -137,9 +137,15 @@ class OpenCVCamera(CameraBase):
 
 
 def create_camera():
-    # Picamera2優先、無ければOpenCV
+    # Picamera2優先、初期化に失敗したらOpenCVでフォールバック
     try:
-        from picamera2 import Picamera2  # noqa
+        from picamera2 import Picamera2  # noqa: F401
+    except Exception as e:
+        print("[WARN] Picamera2 unavailable, fallback to OpenCV:", e)
+        return OpenCVCamera()
+
+    try:
         return Picamera2Camera()
-    except Exception:
+    except Exception as e:
+        print("[WARN] Picamera2 init failed, fallback to OpenCV:", e)
         return OpenCVCamera()
