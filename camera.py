@@ -43,31 +43,53 @@ class CameraBase:
 class Picamera2Camera(CameraBase):
     def __init__(self):
         super().__init__()
-        from picamera2 import Picamera2, Preview
+        print("[DEBUG] Picamera2Camera: initializing...")
+
+        from picamera2 import Picamera2
         from libcamera import Transform
         import time
 
-        self.picam2 = Picamera2()
-        # 「preview」設定を使うのがポイント（videoだと capture_array が無反応になる環境がある）
-        self.config = self.picam2.create_preview_configuration(
-            main={"size": (self.width, self.height), "format": "RGB888"},
-            transform=Transform(hflip=0, vflip=0)
-        )
-        self.picam2.configure(self.config)
-        self.picam2.start()
-        time.sleep(1.0)  # ウォームアップ
+        try:
+            self.picam2 = Picamera2()
+            print("[DEBUG] Picamera2Camera: instance created OK")
+        except Exception as e:
+            print("[ERROR] Picamera2 init failed:", e)
+            raise
+
+        try:
+            self.config = self.picam2.create_preview_configuration(
+                main={"size": (self.width, self.height), "format": "RGB888"},
+                transform=Transform(hflip=0, vflip=0)
+            )
+            self.picam2.configure(self.config)
+            print("[DEBUG] Picamera2Camera: configured with preview mode")
+        except Exception as e:
+            print("[ERROR] Picamera2 configure failed:", e)
+            raise
+
+        try:
+            self.picam2.start()
+            print("[DEBUG] Picamera2Camera: started OK")
+        except Exception as e:
+            print("[ERROR] Picamera2 start failed:", e)
+            raise
+
+        time.sleep(1.0)
+        print("[DEBUG] Picamera2Camera: warmup done")
 
     def _loop(self):
-        import io
+        import io, time
         from PIL import Image
-        import time
 
+        print("[DEBUG] Picamera2Camera: loop started")
         while self.running:
             try:
-                frame = self.picam2.capture_array("main")  # "main"ストリームを明示
+                frame = self.picam2.capture_array("main")
                 if frame is None:
-                    time.sleep(0.05)
+                    print("[WARN] capture_array returned None")
+                    time.sleep(0.2)
                     continue
+                print("[DEBUG] got frame:", frame.shape)
                 img = Image.fromarray(frame)
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=JPEG_QUALITY)
@@ -75,8 +97,10 @@ class Picamera2Camera(CameraBase):
                     self.last_frame = buf.getvalue()
                 time.sleep(0.05)
             except Exception as e:
-                print("Picamera2 loop error:", e)
-                time.sleep(0.1)
+                print("[ERROR] Picamera2 loop exception:", e)
+                time.sleep(0.2)
+
+        print("[DEBUG] Picamera2Camera: loop stopped")
 
 
 class OpenCVCamera(CameraBase):
