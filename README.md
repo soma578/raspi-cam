@@ -127,6 +127,10 @@ Environment="MAX_FPS=15"
 Environment="SNAP_DIR=/home/pi/raspi-cam-viewer/snaps"
 Environment="UPLOAD_URL=https://example.com/upload"
 Environment="UPLOAD_API_KEY=YOUR_API_KEY"
+# カラー順序が逆に見える場合は AUTO/RGB/BGR から選択
+# Environment="CAMERA_COLOR_ORDER=RGB"
+# 詳細デバッグが必要な場合のみ 1 をセット
+# Environment="CAMERA_DEBUG=1"
 ExecStart=/home/pi/raspi-cam-viewer/.venv/bin/python /home/pi/raspi-cam-viewer/app.py
 Restart=always
 RestartSec=2
@@ -181,6 +185,21 @@ crontab -e
 | ファイル名例 | `capture_20251009_070000.jpg`                |
 
 サーバ側で `timestamp` と `filename` を受け取ることで、DB連携・時系列整理が可能です。
+
+---
+
+## 🎛 環境変数まとめ
+
+| 変数名 | 役割 | 既定値 | 備考 |
+| ------ | ---- | ------ | ---- |
+| `FRAME_SIZE` | プレビュー解像度 (WIDTH,HEIGHT) | `1280,720` | Picamera2 / OpenCV 両対応 |
+| `JPEG_QUALITY` | JPEG 品質 | `80` | 数値が低いほどファイルサイズは小さい |
+| `MAX_FPS` | UI 配信の最大 FPS | `15` | Socket.IO 経由の負荷制御 |
+| `SNAP_DIR` | スナップ保存先 | `./snaps` | 自動作成される |
+| `UPLOAD_URL` | アップロード先 URL | 空文字 | 空ならアップロード無効 |
+| `UPLOAD_API_KEY` | アップロード認証トークン | 空文字 | 認証不要なら未設定のままで OK |
+| `CAMERA_COLOR_ORDER` | カメラの色順序 (AUTO/RGB/BGR) | `BGR` | 色が寒暖反転するなら `RGB` を指定 |
+| `CAMERA_DEBUG` | Picamera2 デバッグログ | `0` | 調査時だけ `1` や `true` で有効化 |
 
 ---
 
