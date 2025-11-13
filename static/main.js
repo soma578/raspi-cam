@@ -11,6 +11,14 @@ const isoVal = document.getElementById("isoVal");
 const exposureInput = document.getElementById("exposure");
 const exposureVal = document.getElementById("exposureVal");
 const exposureAuto = document.getElementById("exposureAuto");
+const evInput = document.getElementById("ev");
+const evVal = document.getElementById("evVal");
+const saturationInput = document.getElementById("saturation");
+const saturationVal = document.getElementById("saturationVal");
+const sharpnessInput = document.getElementById("sharpness");
+const sharpnessVal = document.getElementById("sharpnessVal");
+const awbSelect = document.getElementById("awb");
+const hdrToggle = document.getElementById("hdr");
 
 const socket = io();
 
@@ -107,6 +115,29 @@ function applySettings(settings) {
   } else if (exposureAuto) {
     syncManualControls(exposureAuto.checked);
   }
+  if (evInput && settings.ev != null) {
+    const value = Number(settings.ev);
+    evInput.value = value;
+    if (evVal) evVal.textContent = value.toFixed(1);
+  }
+  if (saturationInput && settings.saturation != null) {
+    const value = Number(settings.saturation);
+    saturationInput.value = value;
+    if (saturationVal) saturationVal.textContent = value.toFixed(2);
+  }
+  if (sharpnessInput && settings.sharpness != null) {
+    const value = Number(settings.sharpness);
+    sharpnessInput.value = value;
+    if (sharpnessVal) sharpnessVal.textContent = value.toFixed(2);
+  }
+  if (awbSelect && settings.awb_mode) {
+    const mode = String(settings.awb_mode);
+    const hasOption = Array.from(awbSelect.options).some(opt => opt.value === mode);
+    awbSelect.value = hasOption ? mode : "auto";
+  }
+  if (hdrToggle && settings.hdr != null) {
+    hdrToggle.checked = Boolean(settings.hdr);
+  }
 }
 
 function updateExposureLabel(value) {
@@ -120,9 +151,10 @@ function updateExposureLabel(value) {
 }
 
 function syncManualControls(autoFlag) {
-  const disabled = !!autoFlag;
-  if (isoInput) isoInput.disabled = disabled;
-  if (exposureInput) exposureInput.disabled = disabled;
+  const manualDisabled = !!autoFlag;
+  if (isoInput) isoInput.disabled = manualDisabled;
+  if (exposureInput) exposureInput.disabled = manualDisabled;
+  if (evInput) evInput.disabled = !autoFlag;
 }
 
 if (contrastInput) {
@@ -147,6 +179,18 @@ if (isoInput) {
   });
 }
 
+if (evInput) {
+  evInput.addEventListener("input", ev => {
+    const value = Number(ev.target.value);
+    if (evVal) {
+      evVal.textContent = value.toFixed(1);
+    }
+    if (!exposureAuto || exposureAuto.checked) {
+      queueSettings({ev: value});
+    }
+  });
+}
+
 if (exposureInput) {
   exposureInput.addEventListener("input", ev => {
     const value = Number(ev.target.value);
@@ -166,6 +210,41 @@ if (exposureAuto) {
       if (exposureInput) queueSettings({exposure_us: Number(exposureInput.value)});
       if (isoInput) queueSettings({iso: Number(isoInput.value)});
     }
+    if (autoFlag && evInput) {
+      queueSettings({ev: Number(evInput.value)});
+    }
+  });
+}
+
+if (saturationInput) {
+  saturationInput.addEventListener("input", ev => {
+    const value = Number(ev.target.value);
+    if (saturationVal) {
+      saturationVal.textContent = value.toFixed(2);
+    }
+    queueSettings({saturation: value});
+  });
+}
+
+if (sharpnessInput) {
+  sharpnessInput.addEventListener("input", ev => {
+    const value = Number(ev.target.value);
+    if (sharpnessVal) {
+      sharpnessVal.textContent = value.toFixed(2);
+    }
+    queueSettings({sharpness: value});
+  });
+}
+
+if (awbSelect) {
+  awbSelect.addEventListener("change", ev => {
+    queueSettings({awb_mode: ev.target.value});
+  });
+}
+
+if (hdrToggle) {
+  hdrToggle.addEventListener("change", ev => {
+    queueSettings({hdr: ev.target.checked});
   });
 }
 
@@ -174,6 +253,15 @@ if (exposureInput) {
 }
 if (exposureAuto) {
   syncManualControls(exposureAuto.checked);
+}
+if (evInput && evVal) {
+  evVal.textContent = Number(evInput.value).toFixed(1);
+}
+if (saturationInput && saturationVal) {
+  saturationVal.textContent = Number(saturationInput.value).toFixed(2);
+}
+if (sharpnessInput && sharpnessVal) {
+  sharpnessVal.textContent = Number(sharpnessInput.value).toFixed(2);
 }
 
 loadSettings();

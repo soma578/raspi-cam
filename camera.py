@@ -10,6 +10,17 @@ from PIL import Image, ImageEnhance
 
 from config import FRAME_SIZE, JPEG_QUALITY, SNAP_DIR, CAMERA_COLOR_ORDER, CAMERA_DEBUG
 
+AWB_MODES = {
+    "auto",
+    "daylight",
+    "cloudy",
+    "incandescent",
+    "fluorescent",
+    "tungsten",
+    "sunlight",
+    "custom",
+}
+
 
 def debug_print(*args, **kwargs):
     if CAMERA_DEBUG:
@@ -25,8 +36,13 @@ class CameraBase:
         self._adjustments = {
             "contrast": 1.0,
             "iso": 100.0,
-            "exposure_us": 1000.0,
+            "exposure_us": 20000.0,
             "auto_exposure": True,
+            "ev": 0.0,
+            "saturation": 1.0,
+            "sharpness": 1.0,
+            "awb_mode": "auto",
+            "hdr": False,
         }
         self.software_adjustments = True
 
@@ -62,7 +78,19 @@ class CameraBase:
         with self._settings_lock:
             return dict(self._adjustments)
 
-    def update_adjustments(self, *, contrast=None, iso=None, exposure_us=None, auto_exposure=None):
+    def update_adjustments(
+        self,
+        *,
+        contrast=None,
+        iso=None,
+        exposure_us=None,
+        auto_exposure=None,
+        ev=None,
+        saturation=None,
+        sharpness=None,
+        awb_mode=None,
+        hdr=None,
+    ):
         updated = False
         current = None
         with self._settings_lock:
@@ -75,7 +103,7 @@ class CameraBase:
                 self._adjustments["iso"] = i
                 updated = True
             if exposure_us is not None:
-                exp = max(100.0, min(200000.0, float(exposure_us)))
+                exp = max(100.0, min(500000.0, float(exposure_us)))
                 self._adjustments["exposure_us"] = exp
                 updated = True
             if auto_exposure is not None:
@@ -84,6 +112,31 @@ class CameraBase:
                 else:
                     auto_flag = bool(auto_exposure)
                 self._adjustments["auto_exposure"] = auto_flag
+                updated = True
+            if ev is not None:
+                e = max(-3.0, min(3.0, float(ev)))
+                self._adjustments["ev"] = e
+                updated = True
+            if saturation is not None:
+                sat = max(0.5, min(2.5, float(saturation)))
+                self._adjustments["saturation"] = sat
+                updated = True
+            if sharpness is not None:
+                shp = max(0.5, min(2.5, float(sharpness)))
+                self._adjustments["sharpness"] = shp
+                updated = True
+            if awb_mode is not None:
+                mode = str(awb_mode).strip().lower()
+                if mode not in AWB_MODES:
+                    mode = "auto"
+                self._adjustments["awb_mode"] = mode or "auto"
+                updated = True
+            if hdr is not None:
+                if isinstance(hdr, str):
+                    hdr_flag = hdr.lower() in {"1", "true", "yes", "on"}
+                else:
+                    hdr_flag = bool(hdr)
+                self._adjustments["hdr"] = hdr_flag
                 updated = True
             if updated:
                 current = dict(self._adjustments)
@@ -106,6 +159,15 @@ class CameraBase:
         iso_factor = iso / 100.0
         if abs(iso_factor - 1.0) > 0.01:
             img = ImageEnhance.Brightness(img).enhance(iso_factor)
+        ev = adj.get("ev", 0.0)
+        if abs(ev) > 0.01:
+            img = ImageEnhance.Brightness(img).enhance(pow(2.0, ev))
+        saturation = adj.get("saturation", 1.0)
+        if abs(saturation - 1.0) > 0.01:
+            img = ImageEnhance.Color(img).enhance(saturation)
+        sharpness = adj.get("sharpness", 1.0)
+        if abs(sharpness - 1.0) > 0.01:
+            img = ImageEnhance.Sharpness(img).enhance(sharpness)
         return img
 
 
@@ -116,6 +178,10 @@ class Picamera2Camera(CameraBase):
 
         from picamera2 import Picamera2
         from libcamera import Transform
+        try:
+            from libcamera import controls as lib_controls
+        except Exception:
+            lib_controls = None
         import time
 
         if hasattr(Picamera2, "set_logging"):
@@ -128,6 +194,7 @@ class Picamera2Camera(CameraBase):
 
         try:
             self.picam2 = Picamera2()
+            self.libcamera_controls = lib_controls
             debug_print("[DEBUG] Picamera2Camera: instance created OK")
         except Exception as e:
             print("[ERROR] Picamera2 init failed:", e)
@@ -235,6 +302,41 @@ class Picamera2Camera(CameraBase):
 
         return frame.copy()
 
+    def _resolve_awb_mode(self, mode):
+        lc = getattr(self, "libcamera_controls", None)
+        enum = getattr(lc, "AwbModeEnum", None) if lc else None
+        if enum is None:
+            return None
+        mapping = {
+            "auto": "Auto",
+            "incandescent": "Incandescent",
+            "tungsten": "Tungsten",
+            "fluorescent": "Fluorescent",
+            "daylight": "Daylight",
+            "cloudy": "Cloudy",
+            "sunlight": "Daylight",
+            "custom": "Custom",
+        }
+        key = (mode or "auto").strip().lower()
+        attr = mapping.get(key, "Auto")
+        return getattr(enum, attr, None)
+
+    def _resolve_hdr_mode(self, enabled):
+        lc = getattr(self, "libcamera_controls", None)
+        if lc is None:
+            return None
+        hdr_enum = None
+        draft = getattr(lc, "draft", None)
+        if draft is not None:
+            hdr_enum = getattr(draft, "HdrModeEnum", None)
+        if hdr_enum is None:
+            hdr_enum = getattr(lc, "HdrModeEnum", None)
+        if hdr_enum is None:
+            return None
+        if enabled:
+            return getattr(hdr_enum, "MultiExposure", None) or getattr(hdr_enum, "Hdr", None)
+        return getattr(hdr_enum, "SingleExposure", None) or getattr(hdr_enum, "None", None)
+
     def _apply_runtime_adjustments(self, settings):
         if not hasattr(self, "picam2"):
             return
@@ -242,17 +344,34 @@ class Picamera2Camera(CameraBase):
         contrast = settings.get("contrast")
         if contrast is not None:
             controls["Contrast"] = max(0.5, min(2.0, float(contrast)))
+        saturation = settings.get("saturation")
+        if saturation is not None:
+            controls["Saturation"] = max(0.0, min(4.0, float(saturation)))
+        sharpness = settings.get("sharpness")
+        if sharpness is not None:
+            controls["Sharpness"] = max(0.0, min(4.0, float(sharpness)))
         auto_mode = settings.get("auto_exposure", True)
         if auto_mode:
             controls["AeEnable"] = 1
+            ev = settings.get("ev", 0.0)
+            controls["ExposureValue"] = max(-3.0, min(3.0, float(ev or 0.0)))
         else:
             controls["AeEnable"] = 0
             exposure = settings.get("exposure_us") or 1000.0
-            exposure = max(100.0, min(200000.0, float(exposure)))
+            exposure = max(100.0, min(500000.0, float(exposure)))
             controls["ExposureTime"] = int(exposure)
             iso = settings.get("iso", 100.0)
             gain = max(1.0, min(8.0, float(iso) / 100.0))
             controls["AnalogueGain"] = gain
+        awb_mode = settings.get("awb_mode")
+        awb_value = self._resolve_awb_mode(awb_mode)
+        if awb_value is not None:
+            controls["AwbMode"] = awb_value
+            controls["AwbEnable"] = 1
+        hdr_flag = settings.get("hdr", False)
+        hdr_value = self._resolve_hdr_mode(hdr_flag)
+        if hdr_value is not None:
+            controls["HdrMode"] = hdr_value
         if not controls:
             return
         try:

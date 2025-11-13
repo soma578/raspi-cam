@@ -76,6 +76,11 @@ def api_settings():
         iso=payload.get("iso"),
         exposure_us=payload.get("exposure_us"),
         auto_exposure=payload.get("auto_exposure"),
+        ev=payload.get("ev"),
+        saturation=payload.get("saturation"),
+        sharpness=payload.get("sharpness"),
+        awb_mode=payload.get("awb_mode"),
+        hdr=payload.get("hdr"),
     )
     if not changed:
         return jsonify({"ok": False, "error": "no_valid_settings"}), 400
