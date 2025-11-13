@@ -23,6 +23,7 @@ class CameraBase:
         self.last_frame = None  # JPEG bytes
         self._settings_lock = threading.Lock()
         self._adjustments = {"contrast": 1.0, "iso": 100.0}
+        self.software_adjustments = True
 
     def start(self):
         self.running = True
@@ -58,6 +59,7 @@ class CameraBase:
 
     def update_adjustments(self, *, contrast=None, iso=None):
         updated = False
+        current = None
         with self._settings_lock:
             if contrast is not None:
                 c = max(0.5, min(3.0, float(contrast)))
@@ -67,9 +69,19 @@ class CameraBase:
                 i = max(50.0, min(800.0, float(iso)))
                 self._adjustments["iso"] = i
                 updated = True
+            if updated:
+                current = dict(self._adjustments)
+        if updated and current:
+            self._apply_runtime_adjustments(current)
         return updated
 
+    def _apply_runtime_adjustments(self, _settings):
+        # Subclasses override when they can touch hardware controls
+        pass
+
     def _apply_adjustments(self, img):
+        if not getattr(self, "software_adjustments", True):
+            return img
         adj = self.get_adjustments()
         contrast = adj.get("contrast", 1.0)
         if abs(contrast - 1.0) > 0.01:
@@ -137,6 +149,8 @@ class Picamera2Camera(CameraBase):
             raise
 
         time.sleep(1.0)
+        self.software_adjustments = False
+        self._apply_runtime_adjustments(self.get_adjustments())
         debug_print("[DEBUG] Picamera2Camera: warmup done")
 
     def _loop(self):
@@ -204,6 +218,33 @@ class Picamera2Camera(CameraBase):
             frame = frame[..., ::-1]
 
         return frame.copy()
+
+    def _apply_runtime_adjustments(self, settings):
+        if not hasattr(self, "picam2"):
+            return
+        controls = {}
+        contrast = settings.get("contrast")
+        if contrast is not None:
+            controls["Contrast"] = max(0.5, min(2.0, float(contrast)))
+        iso = settings.get("iso")
+        if iso is not None:
+            iso_val = float(iso)
+            if abs(iso_val - 100.0) < 1.0:
+                controls["AeEnable"] = 1
+            else:
+                gain = max(1.0, min(8.0, iso_val / 100.0))
+                controls["AeEnable"] = 0
+                controls["AnalogueGain"] = gain
+        if not controls:
+            return
+        try:
+            self.picam2.set_controls(controls)
+            self.software_adjustments = False
+            debug_print(f"[DEBUG] Picamera2Camera: controls updated {controls}")
+        except Exception as e:
+            print("[WARN] Picamera2Camera: failed to set controls:", e)
+            # Fallback to software adjustments if hardware fails
+            self.software_adjustments = True
 
 
 class OpenCVCamera(CameraBase):
