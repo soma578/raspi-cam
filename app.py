@@ -66,6 +66,19 @@ def api_capture_and_upload():
     path = js.get("path")
     return _upload_file(path, extra=js)
 
+@app.route("/api/settings", methods=["GET", "POST"])
+def api_settings():
+    if request.method == "GET":
+        return jsonify({"ok": True, "settings": camera.get_adjustments()})
+    payload = request.get_json(silent=True) or {}
+    changed = camera.update_adjustments(
+        contrast=payload.get("contrast"),
+        iso=payload.get("iso"),
+    )
+    if not changed:
+        return jsonify({"ok": False, "error": "no_valid_settings"}), 400
+    return jsonify({"ok": True, "settings": camera.get_adjustments()})
+
 def _upload_file(path, extra=None):
     if not UPLOAD_URL:
         return jsonify({"ok": False, "error": "UPLOAD_URL not set"}), 400

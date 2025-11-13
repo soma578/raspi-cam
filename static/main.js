@@ -4,11 +4,17 @@ const ctx = overlay.getContext("2d");
 const gridChk = document.getElementById("grid");
 const fpsInput = document.getElementById("fps");
 const stats = document.getElementById("stats");
+const contrastInput = document.getElementById("contrast");
+const isoInput = document.getElementById("iso");
+const contrastVal = document.getElementById("contrastVal");
+const isoVal = document.getElementById("isoVal");
 
 const socket = io();
 
 let running = false;
 let lastTime = performance.now(), frames = 0, shownFps = 0;
+let pendingSettings = {};
+let settingsTimer = null;
 
 function requestFrame() {
   if (!running) return;
@@ -39,6 +45,76 @@ document.getElementById("snapUp").onclick = async () => {
   const js = await r.json();
   alert(js.ok ? `Uploaded: ${js.sent}` : `Failed: ${js.status||js.error}`);
 };
+
+function queueSettings(update) {
+  pendingSettings = {...pendingSettings, ...update};
+  if (settingsTimer) clearTimeout(settingsTimer);
+  settingsTimer = setTimeout(async () => {
+    const payload = pendingSettings;
+    pendingSettings = {};
+    settingsTimer = null;
+    try {
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      console.error("Failed to update settings", err);
+    }
+  }, 120);
+}
+
+async function loadSettings() {
+  try {
+    const r = await fetch("/api/settings");
+    const js = await r.json();
+    if (js.ok && js.settings) {
+      applySettings(js.settings);
+    }
+  } catch (err) {
+    console.error("Failed to load settings", err);
+  }
+}
+
+function applySettings(settings) {
+  if (contrastInput && settings.contrast != null) {
+    const value = Number(settings.contrast);
+    contrastInput.value = value;
+    if (contrastVal) {
+      contrastVal.textContent = value.toFixed(2);
+    }
+  }
+  if (isoInput && settings.iso != null) {
+    const value = Number(settings.iso);
+    isoInput.value = value;
+    if (isoVal) {
+      isoVal.textContent = Math.round(value);
+    }
+  }
+}
+
+if (contrastInput) {
+  contrastInput.addEventListener("input", ev => {
+    const value = Number(ev.target.value);
+    if (contrastVal) {
+      contrastVal.textContent = value.toFixed(2);
+    }
+    queueSettings({contrast: value});
+  });
+}
+
+if (isoInput) {
+  isoInput.addEventListener("input", ev => {
+    const value = Number(ev.target.value);
+    if (isoVal) {
+      isoVal.textContent = Math.round(value);
+    }
+    queueSettings({iso: value});
+  });
+}
+
+loadSettings();
 
 function drawOverlay() {
   overlay.width = img.clientWidth;

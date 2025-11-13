@@ -6,7 +6,7 @@ import time
 import threading
 import io
 from datetime import datetime
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 from config import FRAME_SIZE, JPEG_QUALITY, SNAP_DIR, CAMERA_COLOR_ORDER, CAMERA_DEBUG
 
@@ -21,6 +21,8 @@ class CameraBase:
         self.lock = threading.Lock()
         self.running = False
         self.last_frame = None  # JPEG bytes
+        self._settings_lock = threading.Lock()
+        self._adjustments = {"contrast": 1.0, "iso": 100.0}
 
     def start(self):
         self.running = True
@@ -49,6 +51,34 @@ class CameraBase:
         with open(path, "wb") as f:
             f.write(data)
         return path
+
+    def get_adjustments(self):
+        with self._settings_lock:
+            return dict(self._adjustments)
+
+    def update_adjustments(self, *, contrast=None, iso=None):
+        updated = False
+        with self._settings_lock:
+            if contrast is not None:
+                c = max(0.5, min(3.0, float(contrast)))
+                self._adjustments["contrast"] = c
+                updated = True
+            if iso is not None:
+                i = max(50.0, min(800.0, float(iso)))
+                self._adjustments["iso"] = i
+                updated = True
+        return updated
+
+    def _apply_adjustments(self, img):
+        adj = self.get_adjustments()
+        contrast = adj.get("contrast", 1.0)
+        if abs(contrast - 1.0) > 0.01:
+            img = ImageEnhance.Contrast(img).enhance(contrast)
+        iso = adj.get("iso", 100.0)
+        iso_factor = iso / 100.0
+        if abs(iso_factor - 1.0) > 0.01:
+            img = ImageEnhance.Brightness(img).enhance(iso_factor)
+        return img
 
 
 class Picamera2Camera(CameraBase):
@@ -124,6 +154,7 @@ class Picamera2Camera(CameraBase):
                 debug_print("[DEBUG] got frame:", frame.shape)
                 frame = self._frame_to_rgb(frame)
                 img = Image.fromarray(frame, mode="RGB")
+                img = self._apply_adjustments(img)
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=JPEG_QUALITY)
                 with self.lock:
@@ -190,11 +221,14 @@ class OpenCVCamera(CameraBase):
             if not ok:
                 time.sleep(0.05)
                 continue
-            ok, jpg = self.cv2.imencode(".jpg", frame, [int(self.cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY])
-            if ok:
-                with self.lock:
-                    self.last_frame = jpg.tobytes()
-            time.sleep(0.001)
+            frame_rgb = self.cv2.cvtColor(frame, self.cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(frame_rgb)
+            img = self._apply_adjustments(img)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=JPEG_QUALITY)
+            with self.lock:
+                self.last_frame = buf.getvalue()
+            time.sleep(0.01)
 
     def stop(self):
         super().stop()
