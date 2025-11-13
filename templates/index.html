@@ -17,6 +17,7 @@
     .control { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .control label { font-weight:600; }
     .control input[type=range] { width:180px; }
+    .auto-toggle { display:flex; align-items:center; gap:4px; font-weight:normal; }
   </style>
 </head>
 <body>
@@ -43,6 +44,12 @@
       <label for="iso">ISO / Gain</label>
       <input id="iso" type="range" min="50" max="800" step="10" value="100">
       <span id="isoVal">100</span>
+    </div>
+    <div class="control">
+      <label for="exposure">Exposure</label>
+      <input id="exposure" type="range" min="200" max="60000" step="200" value="5000">
+      <span id="exposureVal">5.0 ms</span>
+      <label class="auto-toggle"><input type="checkbox" id="exposureAuto" checked> Auto</label>
     </div>
   </section>
 

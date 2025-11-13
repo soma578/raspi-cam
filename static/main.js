@@ -8,6 +8,9 @@ const contrastInput = document.getElementById("contrast");
 const isoInput = document.getElementById("iso");
 const contrastVal = document.getElementById("contrastVal");
 const isoVal = document.getElementById("isoVal");
+const exposureInput = document.getElementById("exposure");
+const exposureVal = document.getElementById("exposureVal");
+const exposureAuto = document.getElementById("exposureAuto");
 
 const socket = io();
 
@@ -92,6 +95,34 @@ function applySettings(settings) {
       isoVal.textContent = Math.round(value);
     }
   }
+  if (exposureInput && settings.exposure_us != null) {
+    const value = Number(settings.exposure_us);
+    exposureInput.value = value;
+    updateExposureLabel(value);
+  }
+  if (exposureAuto && settings.auto_exposure != null) {
+    const autoFlag = Boolean(settings.auto_exposure);
+    exposureAuto.checked = autoFlag;
+    syncManualControls(autoFlag);
+  } else if (exposureAuto) {
+    syncManualControls(exposureAuto.checked);
+  }
+}
+
+function updateExposureLabel(value) {
+  if (!exposureVal) return;
+  const ms = Number(value) / 1000.0;
+  if (ms >= 1) {
+    exposureVal.textContent = `${ms.toFixed(1)} ms`;
+  } else {
+    exposureVal.textContent = `${(ms * 1000).toFixed(0)} us`;
+  }
+}
+
+function syncManualControls(autoFlag) {
+  const disabled = !!autoFlag;
+  if (isoInput) isoInput.disabled = disabled;
+  if (exposureInput) exposureInput.disabled = disabled;
 }
 
 if (contrastInput) {
@@ -110,8 +141,39 @@ if (isoInput) {
     if (isoVal) {
       isoVal.textContent = Math.round(value);
     }
-    queueSettings({iso: value});
+    if (!exposureAuto || !exposureAuto.checked) {
+      queueSettings({iso: value});
+    }
   });
+}
+
+if (exposureInput) {
+  exposureInput.addEventListener("input", ev => {
+    const value = Number(ev.target.value);
+    updateExposureLabel(value);
+    if (!exposureAuto || !exposureAuto.checked) {
+      queueSettings({exposure_us: value});
+    }
+  });
+}
+
+if (exposureAuto) {
+  exposureAuto.addEventListener("change", ev => {
+    const autoFlag = ev.target.checked;
+    syncManualControls(autoFlag);
+    queueSettings({auto_exposure: autoFlag});
+    if (!autoFlag) {
+      if (exposureInput) queueSettings({exposure_us: Number(exposureInput.value)});
+      if (isoInput) queueSettings({iso: Number(isoInput.value)});
+    }
+  });
+}
+
+if (exposureInput) {
+  updateExposureLabel(exposureInput.value);
+}
+if (exposureAuto) {
+  syncManualControls(exposureAuto.checked);
 }
 
 loadSettings();

@@ -74,6 +74,8 @@ def api_settings():
     changed = camera.update_adjustments(
         contrast=payload.get("contrast"),
         iso=payload.get("iso"),
+        exposure_us=payload.get("exposure_us"),
+        auto_exposure=payload.get("auto_exposure"),
     )
     if not changed:
         return jsonify({"ok": False, "error": "no_valid_settings"}), 400

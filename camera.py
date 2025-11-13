@@ -22,7 +22,12 @@ class CameraBase:
         self.running = False
         self.last_frame = None  # JPEG bytes
         self._settings_lock = threading.Lock()
-        self._adjustments = {"contrast": 1.0, "iso": 100.0}
+        self._adjustments = {
+            "contrast": 1.0,
+            "iso": 100.0,
+            "exposure_us": 1000.0,
+            "auto_exposure": True,
+        }
         self.software_adjustments = True
 
     def start(self):
@@ -57,7 +62,7 @@ class CameraBase:
         with self._settings_lock:
             return dict(self._adjustments)
 
-    def update_adjustments(self, *, contrast=None, iso=None):
+    def update_adjustments(self, *, contrast=None, iso=None, exposure_us=None, auto_exposure=None):
         updated = False
         current = None
         with self._settings_lock:
@@ -68,6 +73,17 @@ class CameraBase:
             if iso is not None:
                 i = max(50.0, min(800.0, float(iso)))
                 self._adjustments["iso"] = i
+                updated = True
+            if exposure_us is not None:
+                exp = max(100.0, min(200000.0, float(exposure_us)))
+                self._adjustments["exposure_us"] = exp
+                updated = True
+            if auto_exposure is not None:
+                if isinstance(auto_exposure, str):
+                    auto_flag = auto_exposure.lower() in {"1", "true", "yes", "on"}
+                else:
+                    auto_flag = bool(auto_exposure)
+                self._adjustments["auto_exposure"] = auto_flag
                 updated = True
             if updated:
                 current = dict(self._adjustments)
@@ -226,15 +242,17 @@ class Picamera2Camera(CameraBase):
         contrast = settings.get("contrast")
         if contrast is not None:
             controls["Contrast"] = max(0.5, min(2.0, float(contrast)))
-        iso = settings.get("iso")
-        if iso is not None:
-            iso_val = float(iso)
-            if abs(iso_val - 100.0) < 1.0:
-                controls["AeEnable"] = 1
-            else:
-                gain = max(1.0, min(8.0, iso_val / 100.0))
-                controls["AeEnable"] = 0
-                controls["AnalogueGain"] = gain
+        auto_mode = settings.get("auto_exposure", True)
+        if auto_mode:
+            controls["AeEnable"] = 1
+        else:
+            controls["AeEnable"] = 0
+            exposure = settings.get("exposure_us") or 1000.0
+            exposure = max(100.0, min(200000.0, float(exposure)))
+            controls["ExposureTime"] = int(exposure)
+            iso = settings.get("iso", 100.0)
+            gain = max(1.0, min(8.0, float(iso) / 100.0))
+            controls["AnalogueGain"] = gain
         if not controls:
             return
         try:
