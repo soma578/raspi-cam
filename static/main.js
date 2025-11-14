@@ -19,6 +19,7 @@ const sharpnessInput = document.getElementById("sharpness");
 const sharpnessVal = document.getElementById("sharpnessVal");
 const awbSelect = document.getElementById("awb");
 const hdrToggle = document.getElementById("hdr");
+const cameraSelect = document.getElementById("cameraSelect");
 
 const socket = io();
 
@@ -86,6 +87,52 @@ async function loadSettings() {
   } catch (err) {
     console.error("Failed to load settings", err);
   }
+}
+
+async function loadCameraList() {
+  if (!cameraSelect) return;
+  try {
+    cameraSelect.disabled = true;
+    const r = await fetch("/api/cameras");
+    const js = await r.json();
+    if (js.ok && Array.isArray(js.cameras)) {
+      setCameraOptions(js.cameras, js.active);
+    } else {
+      cameraSelect.innerHTML = "<option value=\"\">Unavailable</option>";
+    }
+  } catch (err) {
+    console.error("Failed to load cameras", err);
+  } finally {
+    cameraSelect.disabled = false;
+  }
+}
+
+function setCameraOptions(list, active) {
+  if (!cameraSelect) return;
+  cameraSelect.innerHTML = "";
+  if (!list || list.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "No cameras";
+    cameraSelect.appendChild(opt);
+    cameraSelect.disabled = true;
+    return;
+  }
+  list.forEach(cam => {
+    const opt = document.createElement("option");
+    opt.value = cam.id;
+    const label = cam.name || cam.id;
+    const suffix = cam.type ? ` (${cam.type})` : "";
+    opt.textContent = `${label}${suffix}`;
+    cameraSelect.appendChild(opt);
+  });
+  if (active) {
+    const hasActive = list.some(cam => cam.id === active);
+    cameraSelect.value = hasActive ? active : list[0].id;
+  } else {
+    cameraSelect.value = list[0].id;
+  }
+  cameraSelect.disabled = false;
 }
 
 function applySettings(settings) {
@@ -248,6 +295,34 @@ if (hdrToggle) {
   });
 }
 
+if (cameraSelect) {
+  cameraSelect.addEventListener("change", async ev => {
+    const id = ev.target.value;
+    if (!id) return;
+    cameraSelect.disabled = true;
+    try {
+      const r = await fetch("/api/cameras", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({id})
+      });
+      const js = await r.json();
+      if (!js.ok) {
+        alert(js.error || "Failed to switch camera");
+      } else {
+        setTimeout(() => {
+          loadSettings();
+        }, 200);
+      }
+    } catch (err) {
+      console.error("Failed to switch camera", err);
+    } finally {
+      cameraSelect.disabled = false;
+      loadCameraList();
+    }
+  });
+}
+
 if (exposureInput) {
   updateExposureLabel(exposureInput.value);
 }
@@ -265,6 +340,7 @@ if (sharpnessInput && sharpnessVal) {
 }
 
 loadSettings();
+loadCameraList();
 
 function drawOverlay() {
   overlay.width = img.clientWidth;

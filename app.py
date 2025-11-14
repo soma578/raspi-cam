@@ -1,21 +1,58 @@
 import os
 import time
 import base64
+import threading
 
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO
 from datetime import datetime
 
-from camera import create_camera
+from camera import create_camera, list_available_cameras
 from config import MAX_FPS, SNAP_DIR, UPLOAD_URL, UPLOAD_API_KEY
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
-
+camera_lock = threading.Lock()
 camera = create_camera()
 camera.start()
-
+active_camera_id = getattr(camera, "camera_id", "default")
 last_emit = 0.0
+
+
+def _current_camera():
+    with camera_lock:
+        return camera
+
+
+def _active_camera_id():
+    with camera_lock:
+        return active_camera_id
+
+
+def _switch_camera(target_id):
+    global camera, active_camera_id
+    new_cam = None
+    try:
+        new_cam = create_camera(target_id)
+        new_cam.start()
+    except Exception:
+        if new_cam:
+            try:
+                new_cam.stop()
+            except Exception:
+                pass
+        raise
+    old_cam = None
+    with camera_lock:
+        old_cam = camera
+        camera = new_cam
+        active_camera_id = getattr(new_cam, "camera_id", target_id or "default")
+    if old_cam:
+        try:
+            old_cam.stop()
+        except Exception:
+            pass
+    return active_camera_id
 
 @app.route("/")
 def index():
@@ -32,7 +69,10 @@ def handle_request_frame(_msg):
     now = time.time()
     if (now - last_emit) < (1.0 / MAX_FPS):
         return
-    frame = camera.get_jpeg()
+    cam = _current_camera()
+    if cam is None:
+        return
+    frame = cam.get_jpeg()
     if frame:
         b64 = base64.b64encode(frame).decode("ascii")
         socketio.emit("frame", {"data": f"data:image/jpeg;base64,{b64}"})
@@ -44,7 +84,10 @@ def api_capture():
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"capture_{ts}.jpg"
     path = os.path.join(SNAP_DIR, filename)
-    saved = camera.save_snapshot(path)
+    cam = _current_camera()
+    if cam is None:
+        return jsonify({"ok": False, "error": "no_camera"}), 503
+    saved = cam.save_snapshot(path)
     if not saved:
         return jsonify({"ok": False, "error": "no_frame"}), 503
     return jsonify({"ok": True, "path": saved, "filename": filename, "timestamp": ts})
@@ -68,10 +111,13 @@ def api_capture_and_upload():
 
 @app.route("/api/settings", methods=["GET", "POST"])
 def api_settings():
+    cam = _current_camera()
+    if cam is None:
+        return jsonify({"ok": False, "error": "no_camera"}), 503
     if request.method == "GET":
-        return jsonify({"ok": True, "settings": camera.get_adjustments()})
+        return jsonify({"ok": True, "settings": cam.get_adjustments()})
     payload = request.get_json(silent=True) or {}
-    changed = camera.update_adjustments(
+    changed = cam.update_adjustments(
         contrast=payload.get("contrast"),
         iso=payload.get("iso"),
         exposure_us=payload.get("exposure_us"),
@@ -84,7 +130,28 @@ def api_settings():
     )
     if not changed:
         return jsonify({"ok": False, "error": "no_valid_settings"}), 400
-    return jsonify({"ok": True, "settings": camera.get_adjustments()})
+    return jsonify({"ok": True, "settings": cam.get_adjustments()})
+
+
+@app.route("/api/cameras", methods=["GET", "POST"])
+def api_cameras():
+    if request.method == "GET":
+        return jsonify(
+            {
+                "ok": True,
+                "cameras": list_available_cameras(),
+                "active": _active_camera_id(),
+            }
+        )
+    payload = request.get_json(silent=True) or {}
+    target = payload.get("id") or payload.get("camera_id")
+    if not target:
+        return jsonify({"ok": False, "error": "missing_id"}), 400
+    try:
+        active = _switch_camera(target)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    return jsonify({"ok": True, "active": active})
 
 def _upload_file(path, extra=None):
     if not UPLOAD_URL:

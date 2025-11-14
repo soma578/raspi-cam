@@ -21,7 +21,6 @@ AWB_MODES = {
     "custom",
 }
 
-
 def debug_print(*args, **kwargs):
     if CAMERA_DEBUG:
         print(*args, **kwargs)
@@ -33,6 +32,7 @@ class CameraBase:
         self.running = False
         self.last_frame = None  # JPEG bytes
         self._settings_lock = threading.Lock()
+        self.camera_id = "default"
         self._adjustments = {
             "contrast": 1.0,
             "iso": 100.0,
@@ -172,9 +172,12 @@ class CameraBase:
 
 
 class Picamera2Camera(CameraBase):
-    def __init__(self):
+    def __init__(self, camera_index=None):
         super().__init__()
         debug_print("[DEBUG] Picamera2Camera: initializing...")
+        self.camera_index = camera_index
+        effective_index = camera_index if camera_index is not None else 0
+        self.camera_id = f"picam2:{effective_index}"
 
         from picamera2 import Picamera2
         from libcamera import Transform
@@ -193,7 +196,10 @@ class Picamera2Camera(CameraBase):
                     debug_print("[DEBUG] Picamera2Camera: set_logging failed:", e)
 
         try:
-            self.picam2 = Picamera2()
+            if camera_index is None:
+                self.picam2 = Picamera2()
+            else:
+                self.picam2 = Picamera2(camera_num=int(camera_index))
             self.libcamera_controls = lib_controls
             debug_print("[DEBUG] Picamera2Camera: instance created OK")
         except Exception as e:
@@ -385,11 +391,19 @@ class Picamera2Camera(CameraBase):
 
 
 class OpenCVCamera(CameraBase):
-    def __init__(self):
+    def __init__(self, device_index=0):
         super().__init__()
         import cv2
         self.cv2 = cv2
-        self.cap = cv2.VideoCapture(0)
+        self.device_index = device_index
+        self.camera_id = f"opencv:{device_index}"
+        self.cap = cv2.VideoCapture(device_index)
+        if not self.cap.isOpened():
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+            raise RuntimeError(f"OpenCV camera index {device_index} unavailable")
         self.cap.set(self.cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(self.cv2.CAP_PROP_FRAME_HEIGHT, self.height)
 
@@ -416,16 +430,115 @@ class OpenCVCamera(CameraBase):
             pass
 
 
-def create_camera():
+def _parse_camera_id(camera_id):
+    if not camera_id:
+        return None, None
+    camera_id = str(camera_id)
+    parts = camera_id.split(":", 1)
+    if len(parts) == 1:
+        return parts[0].lower(), None
+    return parts[0].lower(), parts[1]
+
+
+def _list_picamera2_devices():
+    devices = []
+    try:
+        from picamera2 import Picamera2
+        infos = Picamera2.global_camera_info()
+    except Exception:
+        return devices
+    if not infos:
+        return devices
+    for idx, info in enumerate(infos):
+        label = None
+        serial = None
+        if isinstance(info, dict):
+            label = info.get("Model") or info.get("Name") or info.get("CameraId")
+            serial = info.get("CameraId")
+        devices.append(
+            {
+                "id": f"picam2:{idx}",
+                "type": "picamera2",
+                "name": label or f"Pi Camera {idx}",
+                "details": {"camera_id": serial},
+            }
+        )
+    return devices
+
+
+def _list_opencv_devices(max_devices=6):
+    devices = []
+    try:
+        import cv2
+    except Exception:
+        cv2 = None
+    for idx in range(max_devices):
+        path_hint = f"/dev/video{idx}"
+        opened = False
+        cap = None
+        if cv2 is not None:
+            cap = cv2.VideoCapture(idx)
+            if cap is not None and cap.isOpened():
+                opened = True
+        exists = os.path.exists(path_hint)
+        if opened or exists:
+            name = path_hint if exists else f"Video {idx}"
+            devices.append(
+                {
+                    "id": f"opencv:{idx}",
+                    "type": "opencv",
+                    "name": name,
+                    "details": {"index": idx, "path": path_hint if exists else None},
+                }
+            )
+        if cap is not None:
+            cap.release()
+    return devices
+
+
+def list_available_cameras(max_video_devices=6):
+    cameras = []
+    cameras.extend(_list_picamera2_devices())
+    cameras.extend(_list_opencv_devices(max_video_devices))
+    if not cameras:
+        cameras.append({"id": "picam2:0", "type": "picamera2", "name": "Default Pi Camera", "details": {}})
+    return cameras
+
+
+def create_camera(camera_id=None):
+    cam_type, value = _parse_camera_id(camera_id)
+    if cam_type == "picam2":
+        idx = None
+        if value not in {None, "", "auto"}:
+            try:
+                idx = int(value)
+            except ValueError:
+                idx = None
+        return Picamera2Camera(camera_index=idx)
+    if cam_type == "opencv":
+        idx = 0
+        if value not in {None, ""}:
+            try:
+                idx = int(value)
+            except ValueError:
+                idx = 0
+        return OpenCVCamera(device_index=idx)
+
     # Picamera2優先、初期化に失敗したらOpenCVでフォールバック
     try:
         from picamera2 import Picamera2  # noqa: F401
     except Exception as e:
         print("[WARN] Picamera2 unavailable, fallback to OpenCV:", e)
-        return OpenCVCamera()
+        cam = OpenCVCamera()
+        cam.camera_id = getattr(cam, "camera_id", "opencv:0")
+        return cam
 
     try:
-        return Picamera2Camera()
+        cam = Picamera2Camera()
+        cam.camera_id = getattr(cam, "camera_id", "picam2:0")
+        return cam
     except Exception as e:
         print("[WARN] Picamera2 init failed, fallback to OpenCV:", e)
-        return OpenCVCamera()
+        cam = OpenCVCamera()
+        cam.camera_id = getattr(cam, "camera_id", "opencv:0")
+        return cam
